@@ -5,7 +5,13 @@ import com.google.gson.Gson
 import java.io.File
 
 data class Price(val ingredient: String, val store: String, val price: Double)
-data class Data(val recipes: MutableList<Recipe> = mutableListOf(), val prices: MutableList<Price> = mutableListOf())
+data class User(val name: String, val email: String, val passHash: String)
+data class Data(
+    val recipes: MutableList<Recipe> = mutableListOf(),
+    val prices: MutableList<Price> = mutableListOf(),
+    var user: User? = null,
+    var loggedIn: Boolean = false
+)
 
 class Repo(ctx: Context) {
     private val file = File(ctx.filesDir, "data.json")
