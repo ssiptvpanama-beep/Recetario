@@ -8,6 +8,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -38,6 +39,19 @@ val Orange = Color(0xFFF4511E)
 val OrangeDark = Color(0xFFBF360C)
 val Cream = Color(0xFFFFF8F1)
 val Peach = Color(0xFFFFE0D2)
+
+val categories = listOf("Desayuno", "Almuerzo", "Cena", "Postres", "Bebidas", "Cócteles", "Snacks", "Otros")
+
+fun catIcon(c: String?): String = when (c) {
+    "Desayuno" -> "🥞"
+    "Almuerzo" -> "🍲"
+    "Cena" -> "🍽️"
+    "Postres" -> "🍰"
+    "Bebidas" -> "🥤"
+    "Cócteles" -> "🍹"
+    "Snacks" -> "🍿"
+    else -> "📦"
+}
 
 fun sha(s: String): String =
     MessageDigest.getInstance("SHA-256").digest(s.toByteArray()).joinToString("") { "%02x".format(it) }
@@ -173,6 +187,20 @@ fun LoginScreen(user: User, onLogin: () -> Unit, onOther: () -> Unit) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ChipRow(options: List<String>, selected: String, onSelect: (String) -> Unit) {
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        for (o in options) {
+            FilterChip(
+                selected = o == selected,
+                onClick = { onSelect(o) },
+                label = { Text(if (o == "Todas") "Todas" else catIcon(o) + " " + o) }
+            )
+        }
+    }
+}
+
 @Composable
 fun Home(repo: Repo, user: User, initialUrl: String, onLogout: () -> Unit) {
     val scope = rememberCoroutineScope()
@@ -183,11 +211,24 @@ fun Home(repo: Repo, user: User, initialUrl: String, onLogout: () -> Unit) {
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var priceFor by remember { mutableStateOf<String?>(null) }
+    var query by remember { mutableStateOf("") }
+    var filter by remember { mutableStateOf("Todas") }
+    var newCat by remember { mutableStateOf("Otros") }
 
     BackHandler(enabled = selected != null) { selected = null }
 
     val r = selected
     val cardColors = CardDefaults.cardColors(containerColor = Color.White)
+
+    val q = query.trim().lowercase()
+    val shown = recipes.filter { rec ->
+        val catOk = filter == "Todas" || (rec.category ?: "Otros") == filter
+        val textOk = q.isEmpty() ||
+            rec.name.lowercase().contains(q) ||
+            rec.ingredients.any { it.lowercase().contains(q) } ||
+            rec.steps.any { it.lowercase().contains(q) }
+        catOk && textOk
+    }
 
     Column(Modifier.fillMaxSize()) {
         Row(
@@ -216,71 +257,89 @@ fun Home(repo: Repo, user: User, initialUrl: String, onLogout: () -> Unit) {
         }
 
         if (r == null) {
-            Column(Modifier.fillMaxSize().padding(16.dp)) {
-                Card(
-                    Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(20.dp),
-                    colors = cardColors,
-                    elevation = CardDefaults.cardElevation(4.dp)
-                ) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("➕ Agregar receta", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                        OutlinedTextField(url, { url = it }, label = { Text("Pega el link de una receta") },
-                            modifier = Modifier.fillMaxWidth(), singleLine = true)
-                        Button(
-                            enabled = !loading && url.isNotBlank(),
-                            modifier = Modifier.fillMaxWidth().height(48.dp),
-                            shape = RoundedCornerShape(14.dp),
-                            onClick = {
-                                loading = true
-                                error = null
-                                scope.launch {
-                                    try {
-                                        val rec = withContext(Dispatchers.IO) { RecipeParser.fromUrl(url.trim()) }
-                                        repo.data.recipes.add(0, rec)
-                                        repo.save()
-                                        recipes = repo.data.recipes.toList()
-                                        url = ""
-                                    } catch (e: Exception) {
-                                        error = e.message ?: "Error al leer el link"
+            LazyColumn(
+                Modifier.fillMaxSize().padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                item {
+                    Card(
+                        Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(20.dp),
+                        colors = cardColors,
+                        elevation = CardDefaults.cardElevation(4.dp)
+                    ) {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("➕ Agregar receta", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            OutlinedTextField(url, { url = it }, label = { Text("Pega el link de una receta") },
+                                modifier = Modifier.fillMaxWidth(), singleLine = true)
+                            Text("Categoría", fontSize = 12.sp, color = Color.Gray)
+                            ChipRow(categories, newCat) { newCat = it }
+                            Button(
+                                enabled = !loading && url.isNotBlank(),
+                                modifier = Modifier.fillMaxWidth().height(48.dp),
+                                shape = RoundedCornerShape(14.dp),
+                                onClick = {
+                                    loading = true
+                                    error = null
+                                    scope.launch {
+                                        try {
+                                            val rec = withContext(Dispatchers.IO) { RecipeParser.fromUrl(url.trim()) }
+                                            repo.data.recipes.add(0, rec.copy(category = newCat))
+                                            repo.save()
+                                            recipes = repo.data.recipes.toList()
+                                            url = ""
+                                        } catch (e: Exception) {
+                                            error = e.message ?: "Error al leer el link"
+                                        }
+                                        loading = false
                                     }
-                                    loading = false
                                 }
-                            }
-                        ) { Text(if (loading) "Extrayendo..." else "Guardar receta") }
-                        error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                            ) { Text(if (loading) "Extrayendo..." else "Guardar receta") }
+                            error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                        }
                     }
                 }
-                Spacer(Modifier.height(16.dp))
-                Text("Mis recetas (${recipes.size})", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                if (recipes.isEmpty()) {
-                    Text(
-                        "Aún no tienes recetas 🍽️\nPega un link arriba para empezar.",
-                        color = Color.Gray, modifier = Modifier.padding(top = 12.dp)
+                item {
+                    Text("Mis recetas (${shown.size})", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                }
+                item {
+                    OutlinedTextField(
+                        query, { query = it },
+                        label = { Text("🔍 Buscar por nombre o ingrediente") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp)
                     )
                 }
-                Spacer(Modifier.height(8.dp))
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(recipes) { rec ->
-                        Card(
-                            Modifier.fillMaxWidth().clickable { selected = rec },
-                            shape = RoundedCornerShape(20.dp),
-                            colors = cardColors,
-                            elevation = CardDefaults.cardElevation(4.dp)
-                        ) {
-                            Column {
-                                AsyncImage(
-                                    rec.imageUrl, null,
-                                    Modifier.fillMaxWidth().height(150.dp).background(Peach),
-                                    contentScale = ContentScale.Crop
+                item {
+                    ChipRow(listOf("Todas") + categories, filter) { filter = it }
+                }
+                if (recipes.isEmpty()) {
+                    item {
+                        Text("Aún no tienes recetas 🍽️\nPega un link arriba para empezar.", color = Color.Gray)
+                    }
+                } else if (shown.isEmpty()) {
+                    item { Text("No hay recetas con esa búsqueda 🔎", color = Color.Gray) }
+                }
+                items(shown) { rec ->
+                    Card(
+                        Modifier.fillMaxWidth().clickable { selected = rec },
+                        shape = RoundedCornerShape(20.dp),
+                        colors = cardColors,
+                        elevation = CardDefaults.cardElevation(4.dp)
+                    ) {
+                        Column {
+                            AsyncImage(
+                                rec.imageUrl, null,
+                                Modifier.fillMaxWidth().height(150.dp).background(Peach),
+                                contentScale = ContentScale.Crop
+                            )
+                            Column(Modifier.padding(12.dp)) {
+                                Text(rec.name, fontWeight = FontWeight.Bold, fontSize = 16.sp, maxLines = 2)
+                                Text(
+                                    "${catIcon(rec.category)} ${rec.category ?: "Otros"} · 🥕 ${rec.ingredients.size} · 👩‍🍳 ${rec.steps.size} pasos",
+                                    fontSize = 12.sp, color = Color.Gray
                                 )
-                                Column(Modifier.padding(12.dp)) {
-                                    Text(rec.name, fontWeight = FontWeight.Bold, fontSize = 16.sp, maxLines = 2)
-                                    Text(
-                                        "🥕 ${rec.ingredients.size} ingredientes · 👩‍🍳 ${rec.steps.size} pasos",
-                                        fontSize = 12.sp, color = Color.Gray
-                                    )
-                                }
                             }
                         }
                     }
@@ -299,6 +358,17 @@ fun Home(repo: Repo, user: User, initialUrl: String, onLogout: () -> Unit) {
                             Modifier.fillMaxWidth().height(220.dp).clip(RoundedCornerShape(20.dp)).background(Peach),
                             contentScale = ContentScale.Crop
                         )
+                        Text("Categoría", fontSize = 12.sp, color = Color.Gray, modifier = Modifier.padding(top = 12.dp))
+                        ChipRow(categories, r.category ?: "Otros") { c ->
+                            val idx = repo.data.recipes.indexOfFirst { it.id == r.id }
+                            if (idx >= 0) {
+                                val upd = r.copy(category = c)
+                                repo.data.recipes[idx] = upd
+                                repo.save()
+                                recipes = repo.data.recipes.toList()
+                                selected = upd
+                            }
+                        }
                         Text("🥕 Ingredientes", fontSize = 20.sp, fontWeight = FontWeight.Bold,
                             color = OrangeDark, modifier = Modifier.padding(top = 16.dp))
                     }
