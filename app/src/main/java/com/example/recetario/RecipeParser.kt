@@ -13,7 +13,8 @@ data class Recipe(
     val imageUrl: String?,
     val ingredients: List<String>,
     val steps: List<String>,
-    val sourceUrl: String
+    val sourceUrl: String,
+    val category: String? = null
 )
 
 object RecipeParser {
